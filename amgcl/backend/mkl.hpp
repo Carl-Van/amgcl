@@ -99,7 +99,7 @@ struct mkl {
 
     typedef mkl_crs matrix;
     typedef mkl_vec vector;
-
+    typedef vector  matrix_diagonal;
     typedef solver::skyline_lu<value_type> direct_solver;
 
     /// Backend parameters.
@@ -109,26 +109,26 @@ struct mkl {
     };
 
     /// Copy matrix from builtin backend.
-    static boost::shared_ptr<matrix>
+    static std::shared_ptr<matrix>
     copy_matrix(
-            boost::shared_ptr< typename builtin<value_type>::matrix > A,
+            std::shared_ptr< typename builtin<value_type>::matrix > A,
             const params&
             )
     {
-        return boost::make_shared<matrix>(*A);
+        return std::make_shared<matrix>(*A);
     }
 
     /// Copy vector from builtin backend.
-    static boost::shared_ptr<vector>
+    static std::shared_ptr<vector>
     copy_vector(typename builtin<value_type>::vector const &x, const params&)
     {
-        return boost::make_shared<vector>(x.begin(), x.end());
+        return std::make_shared<vector>(x.data(), x.data() + x.size());
     }
 
     /// Copy vector from builtin backend.
-    static boost::shared_ptr<vector>
+    static std::shared_ptr<vector>
     copy_vector(
-            boost::shared_ptr< typename builtin<value_type>::vector > x,
+            std::shared_ptr< typename builtin<value_type>::vector > x,
             const params &prm
             )
     {
@@ -136,17 +136,17 @@ struct mkl {
     }
 
     /// Create vector of the specified size.
-    static boost::shared_ptr<vector>
+    static std::shared_ptr<vector>
     create_vector(size_t size, const params&)
     {
-        return boost::make_shared<vector>(size);
+        return std::make_shared<vector>(size);
     }
 
     /// Create direct solver for coarse level
-    static boost::shared_ptr<direct_solver>
-    create_solver(boost::shared_ptr< typename builtin<value_type>::matrix > A, const params&)
+    static std::shared_ptr<direct_solver>
+    create_solver(std::shared_ptr< typename builtin<value_type>::matrix > A, const params&)
     {
-        return boost::make_shared<direct_solver>(*A);
+        return std::make_shared<direct_solver>(*A);
     }
 };
 
@@ -184,11 +184,14 @@ struct nonzeros_impl< mkl_crs > {
     }
 };
 
-template <>
-struct spmv_impl< mkl_crs, mkl_vec, mkl_vec >
+template <typename Alpha, typename Beta>
+struct spmv_impl<
+  Alpha, mkl_crs, mkl_vec,
+  Beta, mkl_vec
+  >
 {
-    static void apply(double alpha, const mkl_crs &A, const mkl_vec &x,
-            double beta, mkl_vec &y)
+    static void apply(Alpha alpha, const mkl_crs &A, const mkl_vec &x,
+            Beta beta, mkl_vec &y)
     {
         MKL_INT m = A.nrows;
         MKL_INT k = A.ncols;
@@ -210,7 +213,7 @@ struct residual_impl< mkl_crs, mkl_vec, mkl_vec, mkl_vec >
             mkl_vec &r)
     {
         cblas_dcopy(rhs.size(), rhs.data(), 1, r.data(), 1);
-        spmv_impl<mkl_crs, mkl_vec, mkl_vec>::apply(-1, A, x, 1, r);
+        spmv_impl<double, mkl_crs, mkl_vec, double, mkl_vec>::apply(-1, A, x, 1, r);
     }
 };
 
@@ -241,23 +244,30 @@ struct inner_product_impl< mkl_vec, mkl_vec >
     }
 };
 
-template <>
-struct axpby_impl< mkl_vec, mkl_vec >
+template <typename A, typename B>
+struct axpby_impl<
+  A, mkl_vec,
+  B, mkl_vec
+  >
 {
-    static void apply(double a, const mkl_vec &x, double b, mkl_vec &y)
+    static void apply(A a, const mkl_vec &x, B b, mkl_vec &y)
     {
         cblas_dscal(y.size(), b, y.data(), 1);
         cblas_daxpy(y.size(), a, x.data(), 1, y.data(), 1);
     }
 };
 
-template <>
-struct axpbypcz_impl< mkl_vec, mkl_vec, mkl_vec >
+template <typename A, typename B, typename C>
+struct axpbypcz_impl<
+  A, mkl_vec,
+  B, mkl_vec,
+  C, mkl_vec
+  >
 {
     static void apply(
-            double a, const mkl_vec &x,
-            double b, const mkl_vec &y,
-            double c,       mkl_vec &z
+            A a, const mkl_vec &x,
+            B b, const mkl_vec &y,
+            C c,       mkl_vec &z
             )
     {
         cblas_dscal(z.size(), c, z.data(), 1);
@@ -266,16 +276,16 @@ struct axpbypcz_impl< mkl_vec, mkl_vec, mkl_vec >
     }
 };
 
-template <>
-struct vmul_impl< mkl_vec, mkl_vec, mkl_vec >
+template <typename A, typename B>
+struct vmul_impl<
+  A, mkl_vec, mkl_vec,
+  B, mkl_vec >
 {
-    static void apply(double a, const mkl_vec &x, const mkl_vec &y,
-            double b, mkl_vec &z)
+    static void apply(A a, const mkl_vec &x, const mkl_vec &y, B b, mkl_vec &z)
+
     {
         cblas_dsbmv(CblasRowMajor, CblasLower, z.size(), 0, a, x.data(), 1, y.data(), 1, b, z.data(), 1);
     }
 };
 } // namespace backend
 } // namespace amgcl
-
-#endif
